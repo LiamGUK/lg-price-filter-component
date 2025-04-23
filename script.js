@@ -24,6 +24,7 @@ const settings = {
     split: 0,
     moveCount: 1,
     currValue: 6,
+    incVal: 0,
   },
   max: {
     type: "max",
@@ -35,20 +36,21 @@ const settings = {
     currTrack: 0,
     split: 0,
     moveCount: 1,
-    currValue: 20,
+    currValue: 900,
+    incVal: 0,
   },
 };
 const priceTracking = {
   min: 0,
   max: 0,
-  "deadzone-min": 0,
-  "deadzone-max": 0,
+  "deadzone-min": sliderElSize,
+  "deadzone-max": sliderElSize,
 };
 
 // Calculates position diff between both elements to stop moveSlide function from overlaying elements if they fall into position area in line with the element width
 function calcElementCollision(val) {
   const { viewSize, type } = currSettings;
-  const diff = viewSize - val;
+  const diff = viewSize - (val - sliderElSize);
   priceTracking["deadzone-" + type] = diff;
 }
 
@@ -79,13 +81,17 @@ function slideEnd() {
 // Checks if mouse cursor is currently in valid event area to allow event actions to continue. If outside of parent area will end event or will stop tracking position if elements will overlap each other.
 function checkEventOOB(area, posDiff) {
   const safeZone = calcSafeZone(posDiff, currSettings.type);
-  if (safeZone <= 0) {
+  if (Math.floor(safeZone) <= 0) {
     inValidMove = true;
   } else {
     if (inValidMove) inValidMove = false;
   }
-
   if (area <= 1 || area >= currSettings.viewSize) {
+    slideEnd();
+  }
+  if (currSettings.type === "min" && currSettings.position < 0) {
+    currSettings.position = 0;
+    updatePosition(0);
     slideEnd();
   }
 }
@@ -105,17 +111,15 @@ function updatePosition(posVal) {
 
 // calculates % split for each movement required based 100% left position and max price difference against min price
 function calcSlideSplit() {
-  const priceTrack = minPrice + 1;
-  const sum = (maxPrice - minPrice) / 100;
-  const posMove = sum + priceTrack;
-  return posMove;
+  const totalPriceRange = maxPrice - minPrice; // Total price range
+  const splitVal = 100 / totalPriceRange; // Percentage per unit of price
+  return splitVal;
 }
 
 // calculates % value for each slide movement based on cursor position and 100% left position of parent width
 function calcMovement(movestate) {
-  const { viewSize } = currSettings;
-  const sum = (movestate / viewSize) * 100;
-  return sum.toFixed(3);
+  const sum = (movestate / currSettings.viewSize) * 100;
+  return sum;
 }
 
 // Calculates how far mouse cursor moves in relation to the starting click point of event
@@ -134,21 +138,57 @@ function calcValidEventArea(e) {
 
 function calcSafeZone(currPos, type) {
   if (type === "min") {
-    return currPos - priceTracking["deadzone-max"] - sliderElSize * 2;
+    return currPos - priceTracking["deadzone-max"] - sliderElSize + 5;
   }
   if (type === "max") {
-    return currPos - priceTracking["deadzone-min"] - sliderElSize;
+    return currPos - priceTracking["deadzone-min"] - sliderElSize + 5;
   }
 }
 
-function moveSlide(e, moveState, posDiff, eventMove = 0) {
-  if (!isActive || inValidMove) return;
-  const posVal = calcMovement(moveState);
-  // RIGHT MOVEMENT
-  if (e.movementX > 0 || eventMove > 0) {
+function updateCurrVal(pos) {
+  const { type } = currSettings;
+  const diff = maxPrice - minPrice;
+  const sum = Math.ceil((pos * diff) / 100);
+  if (type === "min") {
+    currSettings.currValue = minPrice + Math.abs(sum);
+  }
+  if (type === "max") {
+    currSettings.currValue = maxPrice - Math.abs(sum);
+  }
+}
+
+function slideLeft(posVal, posDiff, moveState) {
+  if (currSettings.split <= 1) {
+    hasMoved = true;
+    currSettings.position = moveState;
+    updateCurrVal(posVal);
+    calcElementCollision(posDiff);
+    updatePosition(Math.abs(posVal));
+  } else {
+    const targetTrack = currSettings.split * (currSettings.moveCount - 2);
+
+    if (posVal <= targetTrack) {
+      hasMoved = true;
+      currSettings.position = moveState;
+      currSettings.moveCount--;
+      currSettings.currValue--;
+      calcElementCollision(posDiff);
+      updatePosition(Math.abs(posVal));
+    }
+  }
+}
+
+function slideRight(posVal, posDiff, moveState) {
+  if (currSettings.split <= 1) {
+    hasMoved = true;
+    currSettings.position = moveState;
+    updateCurrVal(posVal);
+    calcElementCollision(posDiff);
+    updatePosition(Math.abs(posVal));
+  } else {
     const targetTrack = currSettings.split * currSettings.moveCount;
 
-    if (posVal > targetTrack) {
+    if (posVal >= targetTrack) {
       hasMoved = true;
       currSettings.position = moveState;
       currSettings.moveCount++;
@@ -157,18 +197,20 @@ function moveSlide(e, moveState, posDiff, eventMove = 0) {
       updatePosition(Math.abs(posVal));
     }
   }
+}
+
+function moveSlide(e, moveState, posDiff, eventMove = 0) {
+  if (!isActive || inValidMove) return;
+  if (currSettings.type === "max" && moveState > 0) return;
+  const posVal = calcMovement(moveState);
+
+  // RIGHT MOVEMENT
+  if (e.movementX > 0 || eventMove > 0) {
+    slideRight(posVal, posDiff, moveState);
+  }
   // LEFT MOVEMENT
   if (e.movementX < 0 || eventMove < 0) {
-    const targetTrack = currSettings.split * (currSettings.moveCount - 2);
-
-    if (posVal < targetTrack) {
-      hasMoved = true;
-      currSettings.position = moveState;
-      currSettings.moveCount--;
-      currSettings.currValue--;
-      calcElementCollision(posDiff);
-      updatePosition(Math.abs(posVal));
-    }
+    slideLeft(posVal, posDiff, moveState);
   }
 }
 
